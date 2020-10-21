@@ -1,16 +1,17 @@
 import yaml
-from typing import List, Any
 import numpy as np
 import matplotlib.pyplot as plt
+import bisect
 
 
 class Vertex:
     def __init__(self, v_id, n_people: int, x: float, y: float):
         self.v_id = v_id
         self.n_people = n_people
+        self.visited = False
         self.x = x
         self.y = y
-        self.edges = set()
+        self.edges = []
 
 
 class Edge:
@@ -21,13 +22,15 @@ class Edge:
         self.blocked = False
 
         for v in self.Vs:
-            v.edges.add(self)
+            bisect.insort(v.edges, self)
 
     def __lt__(self, other):
+        if self.w == other.w:
+            return self.e_id < other.e_id
         return self.w < other.w
 
 
-class Simulation:
+class Environment:
     def __init__(self, D: float, vertices_config: dict, edges_config: dict):
         self.vertices = {v_id: Vertex(v_id, n_people, np.random.random(), np.random.random())
                          for v_id, n_people in vertices_config.items()}
@@ -36,28 +39,41 @@ class Simulation:
         self.deadline = D
         self.actions_performed = 0
         self.rescued_people = 0
+        self.agents = []
 
-    def run_agents(self, program, initial_positions: List[Any]):
-        if any([pos not in self.vertices.keys() for pos in initial_positions]):
-            raise ValueError('Invalid initial positions')
+    def run_agents(self, agents_config: dict):
 
-        agents = [HumanAgent(self, self.vertices[V0]) if program == 'Human' else
-                  (GreedyAgent(self, self.vertices[V0]) if program == 'Greedy' else
-                   SaboteurAgent(self, self.vertices[V0])) for V0 in initial_positions]
+        # if any([pos not in self.vertices.keys() for pos in initial_positions]):
+        #     raise ValueError('Invalid initial positions')
 
-        for agent in agents:
+        self.agents = {agent_id: (HumanAgent(agent_id, self) if agent_config[0] == 'Human' else
+                                  (GreedyAgent(agent_id, self, self.vertices[agent_config[1]]) if agent_config[
+                                                                                                      0] == 'Greedy' else
+                                   SaboteurAgent(agent_id, self, self.vertices[agent_config[1]]))) for
+                       agent_id, agent_config
+                       in agents_config.items()}
+
+        for agent in self.agents.values():
             agent.run()
 
     def plot_state(self):
         V_x = []
         V_y = []
+        V_x_visited = []
+        V_y_visited = []
 
         for v in self.vertices.values():
-            V_x.append(v.x)
-            V_y.append(v.y)
-            plt.annotate(text=v.n_people, xy=(v.x, v.y))
+            if v.visited:
+                V_x_visited.append(v.x)
+                V_y_visited.append(v.y)
+            else:
+                V_x.append(v.x)
+                V_y.append(v.y)
 
-        plt.scatter(V_x, V_y, color="r", label='shapes', s=200)
+            plt.annotate(text=v.v_id + ' ' + str(v.n_people), xy=(v.x, v.y))
+
+        plt.scatter(V_x, V_y, color="b", label='shapes', s=200)
+        plt.scatter(V_x_visited, V_y_visited, color="r", label='visited', s=200)
 
         for e in self.edges.values():
             V_x = []
@@ -75,53 +91,82 @@ class Simulation:
 
 
 class Agent:
-    def __init__(self, sim_state, V0: Vertex):
-        self.sim_state = sim_state
-        V0.n_people = 0
-        self.current_vertex = V0
+    def __init__(self, agent_id, env_state: Environment, V0: Vertex = None):
+        self.agent_id = agent_id
+        self.env_state = env_state
+        self.terminated = False
 
     def run(self):
         pass
-
-    def traverse(self, new_edge):
-        pass
-
-    @staticmethod
-    def terminate():
-        print('The simulation has ended')
-
-
-class HumanAgent(Agent):
-    def __init__(self, sim_state: Simulation, V0: Vertex):
-        super().__init__(sim_state, V0)
-
-    def run(self):
-        self.sim_state.plot_state()
-
-
-class GreedyAgent(Agent):
-    def __init__(self, sim_state, V0: Vertex):
-        super().__init__(sim_state, V0)
-
-    def run(self):
-        # print([v.n_people for e in self.current_vertex.edges for v in e.Vs])
-        relevant_edges = [e for e in self.current_vertex.edges
-                          if not e.blocked and any([v.n_people > 0 for v in e.Vs])]
-        minimal_edge = min(relevant_edges) if len(relevant_edges) else 0
-        if minimal_edge != 0 and minimal_edge.w < self.sim_state.deadline:
-            self.traverse(minimal_edge)
-        else:
-            Agent.terminate()
 
     def traverse(self, new_edge):
         self.current_vertex = (new_edge.Vs - {self.current_vertex}).pop()
+        self.env_state.deadline -= new_edge.w
+
+    def terminate(self):
+        self.terminated = True
+        print('The agent ' + self.agent_id + ' has terminated')
+
+
+class HumanAgent(Agent):
+    def __init__(self, agent_id, env_state: Environment):
+        super().__init__(agent_id, env_state)
+
+    def run(self):
+        self.env_state.plot_state()
+
+
+class GreedyAgent(Agent):
+    def __init__(self, agent_id, env_state: Environment, V0: Vertex):
+        super().__init__(agent_id, env_state, V0)
+        self.saved_people = V0.n_people
+        V0.n_people = 0
+        self.current_vertex = V0
+        self.current_vertex.visited = True
+
+    def run(self):
+        while not self.terminated:
+            minimal_edge = None
+            for e in self.current_vertex.edges:
+                if not e.blocked and any([v.n_people > 0 for v in e.Vs]):
+                    minimal_edge = e
+                    break
+
+            if minimal_edge and minimal_edge.w <= self.env_state.deadline:
+                self.traverse(minimal_edge)
+            else:
+                self.terminate()
+
+    def traverse(self, new_edge):
+        super().traverse(new_edge)
+        self.saved_people += self.current_vertex.n_people
         self.current_vertex.n_people = 0
-        self.sim_state.deadline -= new_edge.w
+        self.current_vertex.visited = True
 
 
 class SaboteurAgent(Agent):
-    def __init__(self, sim_state, V0: Vertex):
-        super().__init__(sim_state, V0)
+    def __init__(self, agent_id, env_state: Environment, V0: Vertex):
+        super().__init__(agent_id, env_state, V0)
+        self.current_vertex = V0
+
+    def run(self):
+        while not self.terminated:
+            minimal_edge = None
+            if len(self.current_vertex.edges):
+                self.current_vertex.edges[0].blocked = True
+                self.env_state.deadline -= 1
+
+            for e in self.current_vertex.edges[1:]:
+                if not e.blocked:
+                    minimal_edge = e
+                    break
+            if minimal_edge and minimal_edge.w <= self.env_state.deadline:
+                self.traverse(minimal_edge)
+            else:
+                self.terminate()
+
+    def traverse(self, new_edge):
+        super().traverse(new_edge)
 
 
 def parse_config(config_filename):
@@ -143,5 +188,6 @@ def parse_config(config_filename):
 
 if __name__ == '__main__':
     N, D, vertices_config, edges_config = parse_config(r'config.yaml')
-    sim = Simulation(D, vertices_config, edges_config)
-    sim.run_agents('Greedy', ['V1'])
+    env = Environment(D, vertices_config, edges_config)
+    env.run_agents({'A1': ['Saboteur', 'V2'], 'A2': ['Greedy', 'V1'],
+                    'A3': ['Human']})
