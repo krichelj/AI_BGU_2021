@@ -1,6 +1,6 @@
 import yaml
-import numpy as np
 import matplotlib.pyplot as plt
+from math import sin, cos, pi
 import bisect
 
 
@@ -25,15 +25,14 @@ class Edge:
             bisect.insort(v.edges, self)
 
     def __lt__(self, other):
-        if self.w == other.w:
-            return self.e_id < other.e_id
-        return self.w < other.w
+        return self.w < other.w if self.w == other.w else self.e_id < other.e_id
 
 
 class Environment:
     def __init__(self, D: float, vertices_config: dict, edges_config: dict):
-        self.vertices = {v_id: Vertex(v_id, n_people, np.random.random(), np.random.random())
-                         for v_id, n_people in vertices_config.items()}
+        n = len(vertices_config)
+        self.vertices = {v_id: Vertex(v_id, n_people, cos(2 * pi * i / n), sin(2 * pi * i / n))
+                         for i, (v_id, n_people) in enumerate(vertices_config.items())}
         self.edges = {e_id: Edge(e_id, self.vertices[e_tup[0]], self.vertices[e_tup[1]], e_tup[2])
                       for e_id, e_tup in edges_config.items()}
         self.deadline = D
@@ -42,16 +41,11 @@ class Environment:
         self.agents = []
 
     def run_agents(self, agents_config: dict):
-
-        # if any([pos not in self.vertices.keys() for pos in initial_positions]):
-        #     raise ValueError('Invalid initial positions')
-
         self.agents = {agent_id: (HumanAgent(agent_id, self) if agent_config[0] == 'Human' else
-                                  (GreedyAgent(agent_id, self, self.vertices[agent_config[1]]) if agent_config[
-                                                                                                      0] == 'Greedy' else
-                                   SaboteurAgent(agent_id, self, self.vertices[agent_config[1]]))) for
-                       agent_id, agent_config
-                       in agents_config.items()}
+                                  (GreedyAgent(agent_id, self, self.vertices[agent_config[1]])
+                                   if agent_config[0] == 'Greedy' else
+                                   SaboteurAgent(agent_id, self, self.vertices[agent_config[1]])))
+                       for agent_id, agent_config in agents_config.items()}
 
         for agent in self.agents.values():
             agent.run()
@@ -62,6 +56,8 @@ class Environment:
         V_x_visited = []
         V_y_visited = []
 
+        fig, ax = plt.subplots()
+
         for v in self.vertices.values():
             if v.visited:
                 V_x_visited.append(v.x)
@@ -70,10 +66,10 @@ class Environment:
                 V_x.append(v.x)
                 V_y.append(v.y)
 
-            plt.annotate(text=v.v_id + ' ' + str(v.n_people), xy=(v.x, v.y))
+            ax.annotate(text=v.v_id + ' ' + str(v.n_people), xy=(v.x, v.y))
 
-        plt.scatter(V_x, V_y, color="b", label='shapes', s=200)
-        plt.scatter(V_x_visited, V_y_visited, color="r", label='visited', s=200)
+        ax.scatter(V_x, V_y, color="b", label='shapes', s=200)
+        ax.scatter(V_x_visited, V_y_visited, color="r", label='visited', s=200)
 
         for e in self.edges.values():
             V_x = []
@@ -83,10 +79,13 @@ class Environment:
                 V_x.append(v.x)
                 V_y.append(v.y)
 
-            plt.plot(V_x, V_y, color="b", linewidth=0.3)
+            ax.plot(V_x, V_y, color="b", linewidth=0.3)
 
-        plt.tick_params(axis='both', which='both', bottom=False, top=False, labelbottom=False, right=False, left=False,
+        ax.tick_params(axis='both', which='both', bottom=False, top=False, labelbottom=False, right=False, left=False,
                         labelleft=False)
+        plt.axis('equal')
+        plt.tight_layout()
+
         plt.show()
 
 
@@ -95,6 +94,7 @@ class Agent:
         self.agent_id = agent_id
         self.env_state = env_state
         self.terminated = False
+        self.current_vertex = V0
 
     def run(self):
         pass
