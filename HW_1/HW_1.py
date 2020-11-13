@@ -1,67 +1,113 @@
-import yaml
 import matplotlib.pyplot as plt
 from math import sin, cos, pi
 import bisect
 import heapq
-from typing import Dict
+from typing import List, Dict, Any
 import sys
+from abc import ABC, abstractmethod
+import concurrent.futures
 
-config = '''
-General:
-  N: 6
-  D: 40
-Vertices:
-  V1: 6
-  V2: 0
-  V3: 2
-  V4: 0
-  V5: 7
-  V6: 1
-Edges:
-  E1:
-    - V1
-    - V2
-    - 10
-  E2:
-    - V2
-    - V3
-    - 100
-  E3:
-    - V3
-    - V6
-    - 1
-  E4:
-    - V2
-    - V4
-    - 3
-  E5:
-    - V4
-    - V5
-    - 2
-  E6:
-    - V2
-    - V5
-    - 1
+config1 = '''
+#N 6
+#D 40            
+#V1 P6
+#V2
+#V3 P2
+#V4
+#V5 P7
+#V6 P1
+
+#E1 1 2 W4
+#E2 2 3 W5
+#E3 3 6 W1
+#E4 2 4 W3
+#E5 4 5 W2
+#E6 2 5 W1
 '''
 
-config_file = 'config.yaml'
-with open(config_file, "w") as text_file:
-    text_file.write(config)
+config2 = '''
+#N 20
+#D 4.5             
+#V1
+#V2 P1
+#V3
+#V4 P2
+#V5
+#V6 P1
+#V7
+#V8 P4
+#V9
+#V10 P2
+#V11 P3
+#V12
+#V13 P5
+#V14 P4
+#V15
+#V16 P7
+#V17 P2
+#V18
+#V19 P4
+#V20 P3
+
+#E1 1 2 W8
+#E2 3 4 W8
+#E3 2 3 W6
+#E4 1 3 W4
+#E5 2 4 W5
+#E6 3 5 W6
+#E7 3 6 W4
+#E8 3 9 W7
+#E9 4 7 W3
+#E10 4 11 W1
+#E11 11 15 W5
+#E12 7 14 W6
+#E13 14 18 W2
+#E14 18 19 W3
+#E15 12 19 W4
+#E16 6 19 W1
+#E17 10 13 W5
+#E18 10 17 W4
+#E19 5 16 W2
+#E20 16 17 W3
+#E21 17 20 W5
+#E22 1 20 W6
+#E23 20 5 W2
+#E23 20 7 W4
+#E24 4 8 W3
+#E25 11 7 W2
+#E26 12 14 W5
+#E27 2 13 W2
+#E28 5 14 W4
+#E29 8 5 W1
+'''
 
 
-def parse_config(config_filename):
-    with open(config_filename) as config_file:
-        config = yaml.load(config_file, Loader=yaml.FullLoader)
+def parse_config_string(config_string):
+    N = 0
+    D = 0
+    vertices_config = {}
+    edges_config = {}
 
-    general_config = config['General']
-    N = general_config['N']
-    D = general_config['D']
+    for line in config_string.split('\n'):
+        if len(line):
+            identifier = line[1]
 
-    vertices_config = config['Vertices']
-    edges_config = config['Edges']
+            if identifier == 'N':
+                N = int(line[3:])
+            elif identifier == 'D':
+                D = float(line[3:])
+            elif identifier == 'V':
+                p = 0
+                splitted = line[1:].replace('P', '').split(' ')
 
-    if N != len(vertices_config):
-        raise ValueError('The number of vertices should match their description')
+                if len(splitted) > 1:
+                    v, p = splitted
+                else:
+                    v = splitted[0]
+                vertices_config[v] = int(p)
+            else:
+                e, v1, v2, w = line[1:].replace('W', '').split(' ')
+                edges_config[e] = ('V' + v1, 'V' + v2, int(w))
 
     return N, D, vertices_config, edges_config
 
@@ -76,14 +122,8 @@ class Vertex:
         self.edges = []
         self.dist = sys.maxsize
 
-    def __eq__(self, other):
-        return self.v_id == other.v_id
-
-    def __hash__(self):
-        return hash(self.v_id)
-
     def __lt__(self, other):
-        return self.dist < other.dist
+        return (self.dist, self.v_id) < (other.dist, other.v_id)
 
 
 class Edge:
@@ -97,11 +137,14 @@ class Edge:
             bisect.insort(v.edges, self)
 
     def __lt__(self, other):
-        return self.w < other.w if self.w == other.w else self.e_id < other.e_id
+        return (self.w, self.e_id) < (other.w, other.e_id)
+
+    def get_other_vertex(self, v):
+        return (self.Vs - {v}).pop()
 
 
 class Environment:
-    def __init__(self, D: float, vertices_config: dict, edges_config: dict):
+    def __init__(self, D: float, vertices_config: Dict[str, int], edges_config: Dict[str, tuple]):
         n = len(vertices_config)
         self.vertices = {v_id: Vertex(v_id, n_people, cos(2 * pi * i / n), sin(2 * pi * i / n))
                          for i, (v_id, n_people) in enumerate(vertices_config.items())}
@@ -114,10 +157,8 @@ class Environment:
 
         # AI addition
         self.people = {v: True for v in self.vertices.values() if v.n_people > 0}
-        self.search_tree = SearchTree()
-        self.shortest_paths = {}
 
-    def run_agents(self, agents_config: dict):
+    def run_agents(self, agents_config: Dict[Any, List]):
 
         self.agents = {agent_id: (HumanAgent(agent_id, self) if agent_config[0] == 'Human' else
                                   (GreedyAgent(agent_id, self, self.vertices[agent_config[1]])
@@ -128,9 +169,11 @@ class Environment:
         for agent in self.agents.values():
             agent.run()
 
-    def run_AI_agents(self, agents_config: dict):
+    def run_AI_agents(self, agents_config: Dict[Any, List]):
 
-        self.agents = {agent_id: AIGreedyAgent(agent_id, self, self.vertices[agent_config[1]])
+        self.agents = {agent_id: (AIGreedyAgent(agent_config[0], agent_id, self, self.vertices[agent_config[1]])
+                                  if agent_config[0] == 'Greedy' else AIAStarAgent(agent_config[0], agent_id, self,
+                                                                                   self.vertices[agent_config[1]]))
                        for agent_id, agent_config in agents_config.items()}
 
         for agent in self.agents.values():
@@ -171,71 +214,74 @@ class Environment:
                        labelleft=False)
         plt.axis('equal')
         plt.tight_layout()
-
         plt.show()
 
 
 class State:
-    def __init__(self, env: Environment, current_vertex: Vertex, people: Dict[Vertex, bool]):
+    def __init__(self, env: Environment, current_vertex: Vertex,
+                 people: Dict[Vertex, bool], current_path_cost: int,
+                 current_path: List[str]):
+        self.current_path_cost = current_path_cost
         self.env = env
         self.current_vertex = current_vertex
         self.people = people
-        self.sons = []
-
-    def __eq__(self, other):
-        return self.current_vertex == other.current_vertex and self.people == other.people
-
-    def __hash__(self):
-        return self.get_hash()
-
-    def get_hash(self):
-        return hash((self.current_vertex,
-                     ''.join(['1' if x else '0' for x in self.people.values()])))
+        self.f_value = self.get_f_value()
+        self.path = current_path + [self.current_vertex.v_id]
 
     def get_heuristic_value(self):
-        if self.current_vertex in self.env.shortest_paths:
-            res = self.env.shortest_paths[self.current_vertex]
-        else:
-            if not any(self.people.values()):
-                return 0
-            vertices = self.env.vertices.copy()
-            vertices[self.current_vertex.v_id].dist = 0
-            dists = {}
-            Q = [(v, v_id) for v_id, v in vertices.items()]
+        if not any(self.people.values()):
+            return 0
+
+        vertices = self.env.vertices
+        vertices[self.current_vertex.v_id].dist = 0
+        Q = list(vertices.values())
+
+        while len(Q):
             heapq.heapify(Q)
+            u = heapq.heappop(Q)
 
-            while len(Q):
-                u, u_id = heapq.heappop(Q)
-                dists[u_id] = u.dist
-                del vertices[u_id]
+            for e in u.edges:
+                v = e.get_other_vertex(u)
 
-                for e in u.edges:
-                    v = (e.Vs - {u}).pop()
+                if v in Q:
+                    alt = u.dist + e.w
+                    if alt < v.dist:
+                        v.dist = alt
 
-                    if v.v_id in vertices.keys():
-                        alt = u.dist + e.w
-                        if alt < v.dist:
-                            u.dist = alt
+        res = min([vertices[v_id].dist for v_id, b in self.people.items() if b])
 
-            res = [dists[v.v_id] for v, b in self.people.items() if b]
-            print(res)
-            self.env.shortest_paths[self.current_vertex] = res
+        for v in vertices.values():
+            v.dist = sys.maxsize
 
-        return max(res)
+        return res
+
+    def get_potential_sons(self, agent_type):
+
+        raise_son = lambda e: State(self.env, e.get_other_vertex(self.current_vertex),
+                                    self.people.copy(), self.current_path_cost + e.w,
+                                    self.path)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            potential_sons = list(executor.map(raise_son, self.current_vertex.edges))
+
+        return potential_sons
+
+    def get_f_value(self):
+        pass
+
+    def __lt__(self, other):
+        return (self.get_f_value(), self.current_vertex.v_id) < (other.get_f_value(), other.current_vertex.v_id)
 
 
-class SearchTree:
-    def __init__(self):
-        self.states = {}
-
-
-class Agent:
+class Agent(ABC):
+    @abstractmethod
     def __init__(self, agent_id, env: Environment, V0: Vertex = None):
         self.agent_id = agent_id
         self.env = env
         self.terminated = False
         self.current_vertex = V0
 
+    @abstractmethod
     def run(self):
         pass
 
@@ -312,84 +358,91 @@ class SaboteurAgent(Agent):
         super().traverse(new_edge)
 
 
-class AIAgent:
-    def __init__(self, agent_id, env: Environment, V0: Vertex):
+class AIAgent(ABC):
+    LIMIT = 10000
+    expansions = 0
+
+    @abstractmethod
+    def __init__(self, agent_type: str, agent_id, env: Environment, V0: Vertex):
+        self.agent_type = agent_type
         self.agent_id = agent_id
         self.env = env
-        init_people = {v: v != V0 for v in self.env.vertices.values() if v.n_people > 0}
-        self.current_state = State(env, V0, init_people)
-        self.env.search_tree.states[self.current_state.get_hash()] = self.current_state
-        self.path = []
-        self.min_heap = []
+        init_people = {v.v_id: v != V0 for v in self.env.vertices.values() \
+                       if v.n_people > 0}
+        self.goal = {v_id: False for v_id in init_people.keys()}
+        self.current_state = State(env, V0, init_people, 0, [])
+        self.min_heap = [self.current_state]
+        self.terminated = False
 
     def goal_test(self):
-        minimal_state = heapq.heappop(self.min_heap)
-        if minimal_state.current_vertex in minimal_state.people:
-            minimal_state.people[minimal_state.current_vertex] = False
+        heapq.heapify(self.min_heap)
+        self.current_state = heapq.heappop(self.min_heap)
 
-        self.path.append(minimal_state)
-        self.current_state = minimal_state
-        people = list(minimal_state.people.values())
-        goal = [False] * len(people)
+        s = self.current_state
+        v = s.current_vertex
+        v_id = v.v_id
+        people = s.people
 
-        print(people)
+        print('Current Vertex: ' + v_id + ', f value: ' + str(s.f_value))
+        AIAgent.expansions += 1
 
-        if people == goal:
-            print('Agent ' + str(self.agent_id) + ' has terminated')
-            print('Verices visited: ' + ' '.join([s.current_vertex.v_id for s in self.path]))
-            return
+        if v_id in people:
+            people[v_id] = False
 
-        self.expand()
-        self.goal_test()
+        if people == self.goal:
+            self.terminate('success')
+        elif self.agent_type == 'AStar' and AIAgent.expansions == AIAgent.LIMIT:
+            self.terminate('limit_reached')
+
+        if not self.terminated:
+            self.expand()
+            self.goal_test()
 
     def expand(self):
-        potential_sons = []
-
-        for e in self.current_state.current_vertex.edges:
-            v = (e.Vs - {self.current_state.current_vertex}).pop()
-            son = State(self.current_state.env, v, self.current_state.people.copy())
-
-            if self.current_state.current_vertex in son.people:
-                son.people[self.current_state.current_vertex] = False
-            potential_sons.append(son)
+        potential_sons = self.current_state.get_potential_sons(self.agent_type)
+        # print({son.current_vertex.v_id: son.f_value for son in potential_sons})
 
         for son in potential_sons:
-            # son_hash = son.get_hash()
-            # if son_hash in self.env.search_tree.states:
-            #     son = self.env.search_tree.states[son_hash]
-            # else:
-            #   self.env.search_tree.states[son_hash] = son
-            self.current_state.sons.append(son)
-
-        for son in self.current_state.sons:
             heapq.heappush(self.min_heap, son)
 
-    def get_path(self):
-        return self.path
+    def terminate(self, outcome: str):
+        self.terminated = True
+        print('Agent ' + str(self.agent_id) + ' has terminated')
+
+        if outcome == 'success':
+            print('Verices visited: ' + ' '.join([v_id for v_id in self.current_state.path]) +
+                  '\nOptimal path cost: ' + str(self.current_state.current_path_cost)
+                  + '\nExpansions: ' + str(AIAgent.expansions))
+        elif outcome == 'limit_reached':
+            print('FAIL: Time limit exceeded')
 
 
 class AIGreedyAgent(AIAgent):
-    def __init__(self, agent_id, env: Environment, V0: Vertex):
-        super().__init__(agent_id, env, V0)
-        State.__lt__ = lambda myself, other: myself.get_heuristic_value() < other.get_heuristic_value()
-        self.min_heap = [self.current_state]
-        heapq.heapify(self.min_heap)
+    def __init__(self, agent_type: str, agent_id, env: Environment, V0: Vertex):
+        State.get_f_value = lambda self: self.get_heuristic_value()
+        super().__init__(agent_type, agent_id, env, V0)
 
 
-# class AIAStarAgent(AIAgent):
+class AIAStarAgent(AIAgent):
+    def __init__(self, agent_type: str, agent_id, env: Environment, V0: Vertex):
+        State.get_f_value = lambda self: self.get_heuristic_value() + self.current_path_cost
+        super().__init__(agent_type, agent_id, env, V0)
 
-# class AIAStarRealTimeAgent(AIAgent):
+
+class AIAStarRealTimeAgent(AIAgent):
+    def __init__(self, agent_type: str, agent_id, env: Environment, V0: Vertex):
+        super().__init__(agent_type, agent_id, env, V0)
+
 
 if __name__ == '__main__':
-    N, D, vertices_config, edges_config = parse_config(config_file)
+    N, D, vertices_config, edges_config = parse_config_string(config1)
     env = Environment(D, vertices_config, edges_config)
 
     # env.run_agents({
     #     'A1': ['Saboteur', 'V2', 2],
-    #     'A2': ['Greedy', 'V1'], 
+    #     'A2': ['Greedy', 'V1'],
     #     'A3': ['Human'],
     #     })
     env.run_AI_agents({
-        'A1': ['AI', 'V1', 2],
+        'A1': ['AStar', 'V5'],
     })
-    # heuristic_evaluation_function(env)
