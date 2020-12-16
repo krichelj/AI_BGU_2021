@@ -15,6 +15,8 @@ import sys
 from termcolor import colored
 from treelib import Tree
 
+MAX_SIZE = sys.maxsize
+
 config0 = '''
 #N 3
 #D 40          
@@ -137,6 +139,7 @@ config4 = '''
 #E8 4 5 W4   
 
 '''
+
 config5 = '''
 #N 6
 #D 10
@@ -221,7 +224,7 @@ class Vertex:
         self.x = x
         self.y = y
         self.edges = {}
-        self.dist = sys.maxsize
+        self.dist = MAX_SIZE
         self.init = ''
 
     def __lt__(self, other):
@@ -366,7 +369,7 @@ class Graph:
         vertices = self._vertices
 
         for v in vertices.values():
-            v.dist = sys.maxsize
+            v.dist = MAX_SIZE
 
         vertices[v_id].dist = 0
         Q = list(vertices.values())
@@ -438,13 +441,14 @@ class Game:
                  tactic: str, cutoff: int = 10, alpha_beta=True):
         self.deadline = D
         self.graph = Graph.from_config(vertices_config, edges_config)
+        vertices = self.graph.get_vertices()
+
         for agent_id, v_id in agents_config.items():
-            self.graph.get_vertices()[v_id].init += ' V0_' + str(agent_id)
+            vertices[v_id].init += ' V0_' + str(agent_id)
 
         init_people = {v_id: (v.n_people if v_id not in agents_config.values() else 0) for v_id, v in
-                       self.graph.get_vertices().items() if v.n_people > 0}
-        init_saved = {
-            agent_id: (self.graph.get_vertices()[init_vertex_id].n_people if init_vertex_id in init_people else 0)
+                       vertices.items() if v.n_people > 0}
+        init_saved = {agent_id: vertices[init_vertex_id].n_people if init_vertex_id in init_people else 0
             for agent_id, init_vertex_id in agents_config.items()}
         self.current_state = State(self, agents_config, init_saved, init_people, 0)
         self.agents = {agent_id: AIGameAgent(agent_id, self, V0_id) for agent_id, V0_id in agents_config.items()}
@@ -455,7 +459,7 @@ class Game:
         self.metric_closure_graph = self.create_metric_closure()
 
         for v in self.graph.get_vertices().values():
-            v.dist = sys.maxsize
+            v.dist = MAX_SIZE
 
     def run_game(self):
         while self.time != self.deadline and self.current_state.any_people_left():
@@ -466,8 +470,9 @@ class Game:
             current_agent.act(self.alpha_beta)
             self.time += 1
 
+        print()
         for agent_id, agent in self.agents.items():
-            print(str(agent_id) + ' path:' + str(agent.path))
+            print(colored(str(agent_id) + ' path:' + str(agent.path), 'red'))
         print(colored('Final people situation: ' + str(self.current_state.people), 'red'))
         print(colored('People saved: ' + str(self.current_state.saved) + ('\nThe winner is ' + ('A' if
                                                                                                 self.current_state.saved[
@@ -690,11 +695,20 @@ class AIGameAgent:
             current_location.units -= 1
         print('After: ' + str(self.agent_id) + ': ' + str(self.game.current_state.locations[self.agent_id]))
 
-    def update_search_tree_node(self, curr_tree_state_num: int, value: int):
+    def update_search_tree_node(self, curr_tree_state_num: int, value: Union[int, str]):
         node = self.search_tree[curr_tree_state_num]
         node_id = node.identifier
         node_tag = node.tag
         self.search_tree.update_node(nid=node_id, tag=node_tag + ': ' + str(value))
+
+    def restart_tree(self):
+        self.search_tree = Tree()
+        self.search_tree_state_num = 1
+
+    def show_tree(self, value):
+        self.update_search_tree_node(1, value)
+        self.search_tree.show()
+        print('chosen h: ' + str(value))
 
     def alpha_beta_minmax_decision(self, alpha_beta=True):
         current_state = self.game.current_state
@@ -702,14 +716,15 @@ class AIGameAgent:
         v_id = locations[self.agent_id]
         v = self.game.graph.get_vertices()[v_id]
 
-        max_value = - sys.maxsize
+        max_value = - MAX_SIZE
         chosen_edge = None
         chosen_u_id = None
 
         if alpha_beta:
-            alpha = - sys.maxsize
-            beta = sys.maxsize
+            alpha = - MAX_SIZE
+            beta = MAX_SIZE
 
+        self.restart_tree()
         self.search_tree.create_node(tag=str(locations), identifier=1)
 
         for i, e in enumerate(v.edges.values()):
@@ -743,22 +758,18 @@ class AIGameAgent:
                 chosen_edge = e
                 chosen_u_id = u_id
 
-        self.update_search_tree_node(1, max_value)
+        self.show_tree(max_value)
 
-        self.search_tree.show()
-        print('chosen h: ' + str(max_value))
-        self.search_tree = Tree()
-        self.search_tree_state_num = 1
         return chosen_edge, chosen_u_id
 
     def max_value(self, current_state: State, d: int, alpha: int = None, beta: int = None):
 
         if current_state.cutoff_test(d):
-            value = current_state.get_heuristic_value(self.agent_id)
-            self.update_search_tree_node(self.search_tree_state_num, value)
-            return value
+            curr_max_value = current_state.get_heuristic_value(self.agent_id)
+            self.update_search_tree_node(self.search_tree_state_num, curr_max_value)
+            return curr_max_value
 
-        value = - sys.maxsize
+        curr_max_value = - MAX_SIZE
         locations = current_state.locations
         v_id = locations[self.agent_id]
         v = self.game.graph.get_vertices()[v_id]
@@ -774,33 +785,33 @@ class AIGameAgent:
                                          parent=parent_node_state_num)
 
             if current_son.time > self.game.deadline:
-                value = current_state.get_heuristic_value(self.agent_id)
-                self.update_search_tree_node(self.search_tree_state_num, value)
-                self.update_search_tree_node(parent_node_state_num, value)
-                return value
+                curr_max_value = current_state.get_heuristic_value(self.agent_id)
+                self.update_search_tree_node(self.search_tree_state_num, curr_max_value)
+                self.update_search_tree_node(parent_node_state_num, curr_max_value)
+                return curr_max_value
 
             if alpha is not None and beta is not None:
-                value = max(value, self.min_value(current_son, d + 1, alpha, beta))
-                if value >= beta:
-                    self.update_search_tree_node(parent_node_state_num, value)
-                    return value
-                alpha = max(alpha, value)
+                curr_max_value = max(curr_max_value, self.min_value(current_son, d + 1, alpha, beta))
+                if curr_max_value >= beta:
+                    self.update_search_tree_node(parent_node_state_num, curr_max_value)
+                    return curr_max_value
+                alpha = max(alpha, curr_max_value)
             else:
-                value = max(value, self.min_value(current_son, d + 1))
+                curr_max_value = max(curr_max_value, self.min_value(current_son, d + 1))
 
         # print('Final: alpha: ' + str(alpha) + ', Final beta: ' + str(beta))
 
-        self.update_search_tree_node(parent_node_state_num, value)
-        return value
+        self.update_search_tree_node(parent_node_state_num, curr_max_value)
+        return curr_max_value
 
     def min_value(self, current_state: State, d: int, alpha: int = None, beta: int = None):
 
         if current_state.cutoff_test(d):
-            value = current_state.get_heuristic_value(self.agent_id)
-            self.update_search_tree_node(self.search_tree_state_num, value)
-            return value
+            curr_min_value = current_state.get_heuristic_value(self.agent_id)
+            self.update_search_tree_node(self.search_tree_state_num, curr_min_value)
+            return curr_min_value
 
-        value = sys.maxsize
+        curr_min_value = MAX_SIZE
 
         other = AIGameAgent.get_other_player(self.agent_id)
         locations = current_state.locations
@@ -818,26 +829,26 @@ class AIGameAgent:
                                          parent=parent_node_state_num)
 
             if current_son.time > self.game.deadline:
-                value = current_state.get_heuristic_value(self.agent_id)
-                self.update_search_tree_node(self.search_tree_state_num, value)
-                self.update_search_tree_node(parent_node_state_num, value)
-                return value
+                curr_min_value = current_state.get_heuristic_value(self.agent_id)
+                self.update_search_tree_node(self.search_tree_state_num, curr_min_value)
+                self.update_search_tree_node(parent_node_state_num, curr_min_value)
+                return curr_min_value
 
             if alpha is not None and beta is not None:
                 curr = self.max_value(current_son, d + 1, alpha, beta)
-                value = min(value, curr)
-                if value < alpha:
-                    self.update_search_tree_node(parent_node_state_num, value)
-                    return value
-                beta = min(beta, value)
+                curr_min_value = min(curr_min_value, curr)
+                if curr_min_value < alpha:
+                    self.update_search_tree_node(parent_node_state_num, curr_min_value)
+                    return curr_min_value
+                beta = min(beta, curr_min_value)
             else:
                 curr = self.max_value(current_son, d + 1)
-                value = min(value, curr)
+                curr_min_value = min(curr_min_value, curr)
 
-        self.update_search_tree_node(parent_node_state_num, value)
+        self.update_search_tree_node(parent_node_state_num, curr_min_value)
 
         # print('Final: alpha: ' + str(alpha) + ', Final beta: ' + str(beta))
-        return value
+        return curr_min_value
 
     def cooperative_decision(self):
         current_state = self.game.current_state
@@ -846,10 +857,13 @@ class AIGameAgent:
         v = self.game.graph.get_vertices()[v_id]
         other = AIGameAgent.get_other_player(self.agent_id)
 
-        max_value = - sys.maxsize if self.game.tactic != 'Semi Cooperative' else \
-            {self.agent_id: - sys.maxsize, other: - sys.maxsize}
+        curr_max_value = - MAX_SIZE if self.game.tactic == 'Fully Cooperative' else \
+            {self.agent_id: - MAX_SIZE, other: - MAX_SIZE}
         chosen_edge = None
         chosen_u_id = None
+
+        self.restart_tree()
+        self.search_tree.create_node(tag=str(locations), identifier=1)
 
         for i, e in enumerate(v.edges.values()):
             u = e.get_other_vertex(v)
@@ -863,54 +877,78 @@ class AIGameAgent:
             if current_son.time > self.game.deadline:
                 return None, None
 
-            potential = self.max_cooperative_value(current_son, 1, other)
+            potential_max_value = self.max_cooperative_value(current_son, 1, other)
+            self.search_tree_state_num += 1
+            self.search_tree.create_node(tag=str(current_son.locations), identifier=self.search_tree_state_num,
+                                         parent=1)
 
             if self.game.tactic == 'Semi Cooperative':
-                potential_tup = (potential[self.agent_id], potential[other])
-                max_tup = (max_value[self.agent_id], max_value[other])
+                potential_tup = (potential_max_value[self.agent_id], potential_max_value[other])
+                max_tup = (curr_max_value[self.agent_id], curr_max_value[other])
             else:
-                potential_tup = potential
-                max_tup = max_value
+                potential_tup = potential_max_value
+                max_tup = curr_max_value
             if potential_tup > max_tup:
-                max_value = potential
+                curr_max_value = potential_max_value
                 chosen_edge = e
                 chosen_u_id = u_id
 
+        self.show_tree(curr_max_value)
+
         return chosen_edge, chosen_u_id
 
-    def max_cooperative_value(self, s: State, d: int, current_agent_id):
-        if s.cutoff_test(d):
-            return s.get_heuristic_value(self.agent_id)
-
+    def max_cooperative_value(self, current_state: State, d: int, current_agent_id):
         other = AIGameAgent.get_other_player(current_agent_id)
-        value = - sys.maxsize if self.game.tactic != 'Semi Cooperative' else \
-            {current_agent_id: - sys.maxsize, other: - sys.maxsize}
+        curr_player = self.agent_id if d % 2 else other
 
-        locations = s.locations
+        if current_state.cutoff_test(d):
+            curr_max_value = current_state.get_heuristic_value(self.agent_id)
+            self.update_search_tree_node(self.search_tree_state_num, str(curr_max_value) +
+                                         ', player: ' + curr_player)
+            return curr_max_value
+
+        curr_max_value = - MAX_SIZE if self.game.tactic == 'Fully Cooperative' else \
+            {current_agent_id: - MAX_SIZE, other: - MAX_SIZE}
+
+        locations = current_state.locations
         v_id = locations[current_agent_id]
         v = self.game.graph.get_vertices()[v_id]
+        parent_node_state_num = self.search_tree_state_num
 
         for e in v.edges.values():
             u = e.get_other_vertex(v)
             u_id = u.v_id
-            current_son = s.get_vertex_state(current_agent_id, u_id, e.w, True)
+            current_son = current_state.get_vertex_state(current_agent_id, u_id, e.w, True)
+
+            self.search_tree_state_num += 1
+            self.search_tree.create_node(str(current_son.locations), self.search_tree_state_num,
+                                         parent=parent_node_state_num)
 
             if current_son.time > self.game.deadline:
-                return s.get_heuristic_value(self.agent_id)
+                value = current_state.get_heuristic_value(self.agent_id)
+                self.update_search_tree_node(self.search_tree_state_num, value)
+                self.update_search_tree_node(parent_node_state_num, value)
+                return value
 
-            potential = self.max_cooperative_value(current_son, d + 1, other)
+            potential_max_value = self.max_cooperative_value(current_son, d + 1, other)
 
             if self.game.tactic == 'Semi Cooperative':
-                pot_h_self = potential[current_agent_id]
-                pot_h_other = potential[other]
-                curr_h_self = value[current_agent_id]
-                curr_h_other = value[other]
+                pot_h_self = potential_max_value[current_agent_id]
+                pot_h_other = potential_max_value[other]
+                curr_h_self = curr_max_value[current_agent_id]
+                curr_h_other = curr_max_value[other]
 
-                if (pot_h_self, pot_h_other) > (curr_h_self, curr_h_other):
-                    value = potential
+                potential_tup = (pot_h_self, pot_h_other)
+                curr_tup = (curr_h_self, curr_h_other)
+
+                if potential_tup > curr_tup:
+                    curr_max_value = potential_max_value
             else:
-                value = max(value, potential)
-        return value
+                curr_max_value = max(curr_max_value, potential_max_value)
+
+        self.update_search_tree_node(parent_node_state_num, str(curr_max_value) +
+                                     ', player: ' + curr_player)
+        return curr_max_value
 
     @staticmethod
     def get_other_player(agent_id):
@@ -931,8 +969,8 @@ def run_simulation(config):
 
             for i, tactic in enumerate(['Adversarial', 'Semi Cooperative', 'Fully Cooperative']):
                 game = Game(D, vertices_config, edges_config, agents_config, tactic, cutoff, alpha_beta)
-                # if i == 0:
-                #     game.graph.plot()
+                if i == 0:
+                    game.graph.plot()
                 print(colored('-' * 50 + tactic + '-' * 50, 'green'))
                 game.run_game()
 
