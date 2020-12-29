@@ -3,6 +3,7 @@ from typing import Any, Dict
 from copy import deepcopy
 from collections import OrderedDict
 from numpy import prod
+from treelib import Tree
 
 from Graph import Graph, Vertex, Edge, DirectedEdge
 
@@ -173,17 +174,19 @@ class BayesianNetwork(Graph):
         super().__init__(random_variables, bayesian_edges)
         self.evidence: OrderedDict[str, bool] = OrderedDict()
         self.vars: OrderedDict[str: RandomVariable] = random_variables
+        self.evaluation_tree_counter = 1
 
     def set_one_evidence(self, X_id: str, e: bool):
         self.evidence[X_id] = e
 
-    def print_evidence(self):
+    @staticmethod
+    def print_evidence(evidence: Dict):
         output = ' | '
 
-        for e, b in self.evidence.items():
+        for e, b in evidence.items():
             output += e + ' = ' + str(b) + ', '
 
-        if len(self.evidence):
+        if len(evidence):
             output = output[:-2]
         else:
             output = ''
@@ -216,6 +219,10 @@ class BayesianNetwork(Graph):
         if X_id in self.evidence.keys():
             return int(self.evidence[X_id])
 
+        evaluation_tree = Tree()
+        evaluation_tree.create_node(tag='P(' + X_id + BayesianNetwork.print_evidence(self.evidence) + ')',
+                                    identifier=1)
+
         current_evidence = self.evidence.copy()
         current_evidence[X_id] = True
         trimmed_vars = self.discard_barren_nodes(current_evidence)
@@ -223,12 +230,16 @@ class BayesianNetwork(Graph):
         alpha = self.normalize() if len(self.evidence) else 1
         if alpha == 0:
             return 'Not defined'
+        print('alpha: ' + str(alpha))
+        outcome = self.enumerate_all(trimmed_vars, current_evidence, evaluation_tree, 1)
 
-        outcome = self.enumerate_all(trimmed_vars, current_evidence)
+        evaluation_tree.show()
+        self.evaluation_tree_counter = 1
 
         return outcome / alpha
 
-    def enumerate_all(self, trimmed_vars: Dict[str, RandomVariable], current_evidence: Dict[str, bool]):
+    def enumerate_all(self, trimmed_vars: Dict[str, RandomVariable], current_evidence: Dict[str, bool],
+                      evaluation_tree: Tree, parent_node_id: int):
 
         if not len(trimmed_vars):
             return 1.0
@@ -251,10 +262,18 @@ class BayesianNetwork(Graph):
             y = current_evidence[Y_id]
             res = p_y_given_Y_parents if y else 1 - p_y_given_Y_parents
 
+            parents_assignments = {p_id: current_evidence[p_id] for p_id in Y.parents.keys()}
+            self.evaluation_tree_counter += 1
+            evaluation_tree.create_node(tag=('not ' if not y else '') +
+                                            'P(' + Y_id + BayesianNetwork.print_evidence(parents_assignments) + ') = '
+                                            + str(res), identifier=self.evaluation_tree_counter,
+                                        parent=parent_node_id)
+
             if res == 0:
                 return 0
 
-            output = res * self.enumerate_all(trimmed_vars, current_evidence)
+            output = res * self.enumerate_all(trimmed_vars, current_evidence, evaluation_tree,
+                                              self.evaluation_tree_counter)
             # print(output)
         else:
             output = 0.0
@@ -267,7 +286,17 @@ class BayesianNetwork(Graph):
                     continue
 
                 curr_evidence[Y_id] = y
-                res = curr_res * self.enumerate_all(trimmed_vars, curr_evidence)
+
+                parents_assignments = {p_id: current_evidence[p_id] for p_id in Y.parents.keys()}
+                self.evaluation_tree_counter += 1
+                evaluation_tree.create_node(tag=('not ' if not y else '') +
+                                                'P(' + Y_id + BayesianNetwork.print_evidence(
+                    parents_assignments) + ') = '
+                                                + str(curr_res), identifier=self.evaluation_tree_counter,
+                                            parent=parent_node_id)
+
+                res = curr_res * self.enumerate_all(trimmed_vars, curr_evidence, evaluation_tree,
+                                                    self.evaluation_tree_counter)
                 # print(res)
 
                 output += res
@@ -275,7 +304,8 @@ class BayesianNetwork(Graph):
         return output
 
     def normalize(self):
-        return prod([self.vars[E_id].p for E_id in self.evidence.keys()])
+        return prod([self.vars[E_id].p if self.evidence[E_id] else 1 - self.vars[E_id].p
+                     for E_id in self.evidence.keys()])
 
 
 def add_piece_of_evidence(BN: BayesianNetwork):
@@ -294,9 +324,10 @@ def add_piece_of_evidence(BN: BayesianNetwork):
 def get_vertices_probabilities(graph: Graph, BN: BayesianNetwork):
     vertices = graph.get_vertices()
 
-    evidence_string = BN.print_evidence()
+    evidence_string = BayesianNetwork.print_evidence(BN.evidence)
 
     for v_id in vertices.keys():
+        print('#' * 30 + ' v = ' + v_id + ' ' + '#' * 30)
         n = v_id[1:]
         p = BN.enumeration_ask(v_id)
 
@@ -309,17 +340,18 @@ def get_vertices_probabilities(graph: Graph, BN: BayesianNetwork):
 
 def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork):
     edges = graph.get_edges()
-    evidence_string = BN.print_evidence()
+    evidence_string = BayesianNetwork.print_evidence(BN.evidence)
 
-    for t in range(T+1):
-        print('#' * 30 + ' t = ' + str(t) + ' ' + '#' * 30)
+    for t in range(T + 1):
+        print('#' * 60 + ' t = ' + str(t) + ' ' + '#' * 60)
         for e_id, e in edges.items():
+            print('#' * 30 + ' e = ' + e_id + ' ' + '#' * 30)
             id_as_vertices = e.get_id_as_vertices()
 
             var_id = id_as_vertices + '_' + str(t)
 
-            if var_id in ['V1V2_1']:
-                print(BN.vars[var_id].initial_probability_values)
+            # if var_id in ['V1V2_1']:
+            #     print(BN.vars[var_id].initial_probability_values)
 
             p = BN.enumeration_ask(var_id)
 
@@ -330,34 +362,36 @@ def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork):
             print()
 
 
-def get_path_probability(graph: Graph, BN: BayesianNetwork):
-    while True:
-        t = input('Please specify a time to check for blockages in a path\n')
+def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str):
+    if val == '5':
+        while True:
+            t = input('Please specify a time to check for blockages in a path\n')
 
-        if t.isdigit() and int(t) > 0:
-            break
-        else:
-            print('Please input a positive int')
+            if t.isdigit():
+                break
+            else:
+                print('Please input a non-negative int')
+    else:
+        t = 0
 
     while True:
         edges = graph.get_edges()
         input_edges = input('Please specify a path by edge names separated by spaces\n').split(' ')
-
+        print(input_edges)
         if graph.is_path(input_edges):
 
             total_path_probability = 1
             probabilities = {}
             initial_evidence = BN.evidence.copy()
 
-            for e in input_edges:
-                if e not in edges.keys():
-                    e = e[2:4] + e[0:2]
+            for e_id in input_edges:
+                if e_id not in edges.keys():
+                    e_id = e_id[2:4] + e_id[0:2]
 
-                var_id = e + '_' + t
+                var_id = e_id + '_' + str(t)
 
                 if var_id in BN.evidence.keys() and BN.evidence[var_id]:
-                    total_path_probability = 0
-                    break
+                    probabilities[e_id] = 0
 
                 p_blocked = BN.enumeration_ask(var_id)
                 BN.set_one_evidence(var_id, False)
@@ -365,17 +399,22 @@ def get_path_probability(graph: Graph, BN: BayesianNetwork):
                 if p_blocked != 'Not defined':
                     p_not_blocked = 1 - p_blocked
                     total_path_probability *= p_not_blocked
-                    probabilities[e] = p_not_blocked
+                    probabilities[e_id] = p_not_blocked
                 else:
                     total_path_probability = -1
                     break
 
+                if val == '6':
+                    t += 1
+
             BN.evidence = initial_evidence
 
-            print('The individual blockage probabilities are: ' + str(probabilities))
+            print('The individual probabilities of the edges to be free are: ' + str(probabilities))
             print('The probability that the path (' + ' '.join(
-                input_edges) + ') is free from blockages at time ' + t + ' is ' +
+                input_edges) + ') is free from blockages at time ' + str(t) + ' is ' +
                   (str(total_path_probability) if total_path_probability != -1 else ' not defined'))
+
+            break
 
         else:
             print('The edges specified do not form a valid path in the graph')
@@ -393,8 +432,9 @@ def run_simulation(config):
     2. Add piece of evidence to evidence list
     3. Infer the probability that each of the vertices contains evacuees
     4. Infer the probability that each of the edges is blocked
-    5. Infer the probability that a certain path is free from blockages
-    6. Quit
+    5. Infer the probability that a certain path is free from blockages at a specified time
+    6. Infer the probability that a certain path is free from blockages at progressing time steps
+    7. Quit
     """
     graph.plot()
 
@@ -409,9 +449,9 @@ def run_simulation(config):
             get_vertices_probabilities(graph, BN)
         elif val == '4':
             get_edges_probabilities(graph, T, BN)
-        elif val == '5':
-            get_path_probability(graph, BN)
-        elif val == '6':
+        elif val in ['5', '6']:
+            get_path_probability(graph, BN, val)
+        elif val == '7':
             break
 
 
