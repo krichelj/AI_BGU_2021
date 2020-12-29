@@ -7,197 +7,16 @@ Original file is located at
     https://colab.research.google.com/drive/1N5Ed5frawdkeLROK65dd7rfk49zrfF5B
 """
 
-import matplotlib.pyplot as plt
-from math import sin, cos, pi
-import heapq
 from typing import Dict, Any, Union
 import sys
 from termcolor import colored
 from treelib import Tree
 from copy import deepcopy
 
+from Graph import Vertex, Edge, EdgeLocation, Graph
+from configs import config5
+
 MAX_SIZE = sys.maxsize
-
-config0 = '''
-#N 3
-#D 40          
-#V1 P5
-#V2
-#V3 P1
-
-#E1 1 2 W7
-#E2 2 3 W2
-'''
-
-config1 = '''
-#N 6
-#D 400            
-#V1 P6
-#V2
-#V3 P2
-#V4
-#V5 P7
-#V6 P1
-
-#E1 1 2 W4
-#E2 2 3 W5
-#E3 3 6 W1
-#E4 2 4 W3
-#E5 4 5 W2
-#E6 2 5 W1
-'''
-
-config2 = '''
-#N 6
-#D 40            
-#V1 P6
-#V2
-#V3 P2
-#V4
-#V5 P7
-#V6 P1
-
-#E1 1 2 W4
-#E2 2 3 W5
-#E3 3 6 W1
-#E4 2 4 W3
-#E5 4 5 W2
-#E6 2 5 W1
-'''
-
-config3 = '''
-#N 20
-#D 40000000             
-#V1
-#V2 P1
-#V3
-#V4 P2
-#V5
-#V6 P1
-#V7
-#V8 P4
-#V9
-#V10 P2
-#V11 P3
-#V12
-#V13 P5
-#V14 P4
-#V15
-#V16 P7
-#V17 P2
-#V18
-#V19 P4
-#V20 P3
-
-#E1 1 2 W8
-#E2 3 4 W8
-#E3 2 3 W6
-#E4 1 3 W4
-#E5 2 4 W5
-#E6 3 5 W6
-#E7 3 6 W4
-#E8 3 9 W7
-#E9 4 7 W3
-#E10 4 11 W1
-#E11 11 15 W5
-#E12 7 14 W6
-#E13 14 18 W2
-#E14 18 19 W3
-#E15 12 19 W4
-#E16 6 19 W1
-#E17 10 13 W5
-#E18 10 17 W4
-#E19 5 16 W2
-#E20 16 17 W3
-#E21 17 20 W5
-#E22 1 20 W6
-#E23 20 5 W2
-#E23 20 7 W4
-#E24 4 8 W3
-#E25 11 7 W2
-#E26 12 14 W5
-#E27 2 13 W2
-#E28 5 14 W4
-#E29 8 5 W1
-'''
-
-config4 = '''
-#N 6
-#D 20 
-#V1          
-#V2 P1            
-#V3 P2               
-#V4 P4            
-#V5 P5
-
-#V7 P6
-
-#E1 1 3 W2  
-#E2 1 2 W3           
-#E3 3 2 W4  
-#E5 1 7 W5
-#E7 3 4 W7           
-#E8 4 5 W4   
-
-'''
-
-config5 = '''
-#N 6
-#D 10
-#V1
-#V2
-#V3 P1
-#V4 P1
-#V5 P1
-#V6 P5
-
-#E1 1 3 W1
-#E2 1 4 W1
-#E3 1 5 W3
-#E4 1 6 W3
-#E5 2 6 W5
-#E6 2 4 W4
-#E7 3 4 W2
-#E8 4 5 W2
-'''
-
-config6 = '''
-#N 8
-#D 6
-#V1 
-#V2 P1
-#V3 P5
-#V4 P6
-#V5 P20
-#V6 P20
-#V7 P5
-#V8 P5
-
-#E1 1 3 W1
-#E2 1 4 W1
-#E3 2 3 W2
-#E4 3 5 W1
-#E5 4 5 W1
-#E6 4 6 W2
-#E7 4 7 W1
-#E8 7 8 W3
-'''
-
-config7 = '''
-#N 5
-#D 10
-#V1
-#V2 P2
-#V3 P3
-#V4 P4
-#V5 P2
-
-#E1 1 3 W3
-#E2 1 4 W3
-#E3 2 3 W1
-#E4 2 4 W1
-#E5 4 5 W1
-'''
 
 
 def parse_config_string(config_string):
@@ -233,225 +52,6 @@ def parse_config_string(config_string):
     return N, D, vertices_config, edges_config
 
 
-class Vertex:
-    def __init__(self, v_id, n_people: int = None, x: float = None, y: float = None):
-        self.v_id = v_id
-        self.n_people = n_people
-        self.visited = False
-        self.x = x
-        self.y = y
-        self.edges = {}
-        self.dist = MAX_SIZE
-        self.init = ''
-
-    def __lt__(self, other):
-        return (self.dist, self.v_id) < (other.dist, other.v_id)
-
-    def __str__(self):
-        return self.v_id
-
-
-class Edge:
-    def __init__(self, e_id, V1: Vertex, V2: Vertex, w: int = 1):
-        self.e_id = e_id
-        self.Vs = {V1, V2}
-        self.w = w
-        self.blocked = False
-
-    def __str__(self):
-        return self.e_id
-
-    def __eq__(self, other):
-        return self.e_id == other.e_id
-
-    def __hash__(self):
-        return hash(self.e_id)
-
-    def __lt__(self, other):
-        return (self.w, self.e_id) < (other.w, other.e_id)
-
-    def get_other_vertex(self, v: Vertex):
-        return (self.Vs - {v}).pop()
-
-    def get_vertices_ids(self):
-        v_id = self.e_id[0:2]
-        u_id = self.e_id[2:4]
-
-        return v_id, u_id
-
-
-class EdgeLocation:
-    def __init__(self, e_id, origin_v_id, destination_v_id, units: int):
-        self.e_id = e_id
-        self.origin_v_id = origin_v_id
-        self.destination_v_id = destination_v_id
-        self.units = units
-
-    def __str__(self):
-        return 'Walking on ' + self.e_id + ' to ' + self.destination_v_id \
-               + ' with ' + str(self.units) + ' units left'
-
-
-class Graph:
-    def __init__(self, vertices: Dict[Any, Vertex], edges: Dict[Any, Edge]):
-        self._vertices = vertices
-        self._edges = edges
-
-    def get_vertices(self):
-        return self._vertices
-
-    def get_edges(self):
-        return self._edges
-
-    def get_weight(self, v1_id, v2_id):
-        e_id = v1_id + v2_id
-        if e_id not in self._vertices:
-            e_id = v2_id + v1_id
-
-        return self._edges[e_id].w
-
-    @staticmethod
-    def add_edges_to_vertices(edges: Dict[any, Edge]):
-        for e_id, e in edges.items():
-            for v in e.Vs:
-                v_edges = v.edges
-                if e_id not in v_edges:
-                    v_edges[e_id] = e
-
-    @classmethod
-    def from_config(cls, vertices_config: Dict[str, int], edges_config: Dict[str, tuple]):
-        n = len(vertices_config)
-        vertices = {v_id: Vertex(v_id, n_people, cos(2 * pi * i / n), sin(2 * pi * i / n))
-                    for i, (v_id, n_people) in enumerate(vertices_config.items())}
-        edges = {e_id: Edge(e_id, vertices[e_tup[0]], vertices[e_tup[1]], e_tup[2])
-                 for e_id, e_tup in edges_config.items()}
-
-        Graph.add_edges_to_vertices(edges)
-
-        return cls(vertices, edges)
-
-    def plot(self):
-        V_x = []
-        V_y = []
-        V_x_people = []
-        V_y_people = []
-        V_x_init = []
-        V_y_init = []
-
-        fig, ax = plt.subplots(dpi=100)
-
-        for v in self._vertices.values():
-            if v.init:
-                V_x_init.append(v.x)
-                V_y_init.append(v.y)
-            if v.n_people and v.n_people > 0:
-                V_x_people.append(v.x)
-                V_y_people.append(v.y)
-            else:
-                V_x.append(v.x)
-                V_y.append(v.y)
-
-            ax.annotate(str(v.v_id) + (', p:' + str(v.n_people) if v.n_people and v.n_people > 0 else '') +
-                        (':' + str(v.init) if v.init else ''), xy=(v.x, v.y))
-
-        ax.scatter(V_x_init, V_y_init, color="g", label='init', s=200)
-        ax.scatter(V_x, V_y, color="b", label='shapes', s=200)
-        ax.scatter(V_x_people, V_y_people, color="r", label='people', s=200)
-
-        for e in self._edges.values():
-            V_x = []
-            V_y = []
-
-            w_x = 0
-            w_y = 0
-
-            for v in e.Vs:
-                V_x.append(v.x)
-                V_y.append(v.y)
-
-                w_x += v.x
-                w_y += v.y
-
-            ax.plot(V_x, V_y, color="b", linewidth=0.3)
-            plt.text(w_x / 2, w_y / 2, str(e.w))
-
-        ax.tick_params(axis='both', which='both', bottom=False, top=False,
-                       labelbottom=False, right=False, left=False,
-                       labelleft=False)
-        plt.axis('equal')
-        plt.tight_layout()
-        plt.show()
-
-    def Dijkstra(self, v_id):
-        vertices = self._vertices
-
-        for v in vertices.values():
-            v.dist = MAX_SIZE
-
-        vertices[v_id].dist = 0
-        Q = list(vertices.values())
-
-        while len(Q):
-            heapq.heapify(Q)
-            u = heapq.heappop(Q)
-
-            for e in u.edges.values():
-                v = e.get_other_vertex(u)
-
-                if v in Q:
-                    alt = u.dist + e.w
-                    if alt < v.dist:
-                        v.dist = alt
-
-    def Kruskal(self) -> int:
-        min_spanning_tree_cost = 0
-        vertex_sets = {v_id: v_set for v_set, v_id in enumerate(self._vertices.keys())}
-        ordered_edges = sorted(self._edges.values())
-
-        for e in ordered_edges:
-            v_id, u_id = e.get_vertices_ids()
-            v_set = vertex_sets[v_id]
-            u_set = vertex_sets[u_id]
-
-            if v_set != u_set:
-                min_spanning_tree_cost += e.w
-
-                for k_id, k_set in vertex_sets.items():
-                    if k_set == u_set:
-                        vertex_sets[k_id] = v_set
-
-        return min_spanning_tree_cost
-
-    def Prim(self, init_id) -> int:
-        vertices = self.get_vertices()
-        n = len(vertices)
-        init = vertices[init_id]
-        forest_vertices_ids = {init_id}
-        edges_heap = list(init.edges.values())
-        min_spanning_tree_edges = []
-        min_spanning_tree_cost = 0
-
-        while len(forest_vertices_ids) < n:
-            heapq.heapify(edges_heap)
-            e = heapq.heappop(edges_heap)
-            v_id, u_id = e.get_vertices_ids()
-
-            if v_id not in forest_vertices_ids:
-                k_id = v_id
-            elif u_id not in forest_vertices_ids:
-                k_id = u_id
-            else:
-                continue
-
-            edges_heap += list(vertices[k_id].edges.values())
-
-            min_spanning_tree_edges.append(e)
-            forest_vertices_ids.add(k_id)
-            min_spanning_tree_cost += e.w
-
-        return min_spanning_tree_cost
-
-
 class Game:
     def __init__(self, D: float, vertices_config: Dict[str, int],
                  edges_config: Dict[str, tuple], agents_config: Dict[Any, Any],
@@ -463,9 +63,9 @@ class Game:
         for agent_id, v_id in agents_config.items():
             vertices[v_id].init += ' V0_' + str(agent_id)
 
-        init_people = {v_id: (v.n_people if v_id not in agents_config.values() else 0) for v_id, v in
-                       vertices.items() if v.n_people > 0}
-        init_saved = {agent_id: vertices[init_vertex_id].n_people if init_vertex_id in init_people else 0
+        init_people = {v_id: (v.p_people if v_id not in agents_config.values() else 0) for v_id, v in
+                       vertices.items() if v.p_people > 0}
+        init_saved = {agent_id: vertices[init_vertex_id].p_people if init_vertex_id in init_people else 0
                       for agent_id, init_vertex_id in agents_config.items()}
         self.current_state = State(self, agents_config, init_saved, init_people, 0)
         self.agents = {agent_id: AIGameAgent(agent_id, self, V0_id) for agent_id, V0_id in agents_config.items()}
@@ -515,7 +115,7 @@ class Game:
     def create_metric_closure(self):
         graph = self.graph
         vertices = graph.get_vertices()
-        terminals = {v_id: Vertex(v_id, v.n_people, v.x, v.y) for v_id, v in
+        terminals = {v_id: Vertex(v_id, v.p_people, v.x, v.y) for v_id, v in
                      vertices.items()}
         metric_edges = {}
 
@@ -1013,7 +613,7 @@ def run_simulation(config):
 
     i = 0
 
-    for a in range(2,3):
+    for a in range(2, 3):
         for b in range(1):
 
             agents_config = {'A': 'V' + str(a + 1), 'B': 'V' + str(b + 1)}

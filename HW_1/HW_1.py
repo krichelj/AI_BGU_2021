@@ -569,7 +569,7 @@ class GreedyAgent(Agent):
         while not self.terminated:
             minimal_edge = None
             for e in self.current_vertex.edges:
-                if not e.blocked and any([v.n_people > 0 for v in e.Vs]):
+                if not e.blocked and any([v.p_people > 0 for v in e.Vs]):
                     minimal_edge = e
                     break
 
