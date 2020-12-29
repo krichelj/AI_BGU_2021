@@ -4,6 +4,7 @@ from copy import deepcopy
 from collections import OrderedDict
 from numpy import prod
 from treelib import Tree
+from termcolor import colored
 
 from Graph import Graph, Vertex, Edge, DirectedEdge
 
@@ -52,6 +53,23 @@ config_from_video_lecture = '''
 #Ppersistence 0.9
 '''
 
+config = '''
+#N 4               
+
+#V1 F 0            
+#V2 F 0.4        
+#V3 F 0.1           
+#V4 F 0.6         
+#V5 F 0.5
+
+#E1 1 2 W1        
+#E2 2 3 W3           
+#E3 3 4 W3         
+#E4 2 4 W4      
+#E5 2 5 W2
+                    
+#Ppersistence 0.9    ; Set persistence probability to 0.9
+'''
 
 def parse_config_string(config_string):
     N = 0
@@ -104,7 +122,6 @@ class RandomVariable(Vertex):
         self.t = t
         self.w = w
         self.persistence = persistence
-        self.p = 0.0 if len(parents) else p
         self.initial_probability_values = self.construct_initial_table() if p is None else p
         self.evidence_probability_value = 0.0
 
@@ -124,21 +141,6 @@ class RandomVariable(Vertex):
             data[probability_column_name] = [LEAKAGE_PROBABILITY, self.persistence]
 
         probability_table = pd.DataFrame.from_dict(data)
-
-        for row in probability_table.itertuples():
-            row = list(row[1:])
-            p_given = row[-1]
-            assignment = row[:-1]
-
-            for i, parent in enumerate(self.parents.values()):
-                p_parent = parent.p
-
-                if assignment[i] == 1:
-                    p_given *= p_parent
-                else:
-                    p_given *= 1 - p_parent
-
-            self.p += p_given
 
         return probability_table
 
@@ -214,29 +216,33 @@ class BayesianNetwork(Graph):
 
         return trimmed_vars
 
-    def enumeration_ask(self, X_id: str):
+    def enumeration_ask(self, X_id: str, print_trees: bool = False):
 
         if X_id in self.evidence.keys():
             return int(self.evidence[X_id])
 
-        evaluation_tree = Tree()
-        evaluation_tree.create_node(tag='P(' + X_id + BayesianNetwork.print_evidence(self.evidence) + ')',
-                                    identifier=1)
+        results = {}
 
-        current_evidence = self.evidence.copy()
-        current_evidence[X_id] = True
-        trimmed_vars = self.discard_barren_nodes(current_evidence)
+        for x in [True, False]:
+            evaluation_tree = Tree()
+            evaluation_tree.create_node(tag=('not ' if not x else '') +
+                                            'P(' + X_id + BayesianNetwork.print_evidence(self.evidence) + ')',
+                                        identifier=1)
 
-        alpha = self.normalize() if len(self.evidence) else 1
-        if alpha == 0:
-            return 'Not defined'
-        print('alpha: ' + str(alpha))
-        outcome = self.enumerate_all(trimmed_vars, current_evidence, evaluation_tree, 1)
+            current_evidence = self.evidence.copy()
+            current_evidence[X_id] = x
+            trimmed_vars = self.discard_barren_nodes(current_evidence)
+            outcome = self.enumerate_all(trimmed_vars, current_evidence, evaluation_tree, 1)
 
-        evaluation_tree.show()
-        self.evaluation_tree_counter = 1
+            if print_trees:
+                evaluation_tree.show()
+            self.evaluation_tree_counter = 1
 
-        return outcome / alpha
+            results[x] = outcome
+
+        alpha = sum(results.values())
+
+        return results[True] / alpha
 
     def enumerate_all(self, trimmed_vars: Dict[str, RandomVariable], current_evidence: Dict[str, bool],
                       evaluation_tree: Tree, parent_node_id: int):
@@ -321,31 +327,31 @@ def add_piece_of_evidence(BN: BayesianNetwork):
     BN.set_one_evidence(available_vars[int(var_name)], bool(int(e)))
 
 
-def get_vertices_probabilities(graph: Graph, BN: BayesianNetwork):
+def get_vertices_probabilities(graph: Graph, BN: BayesianNetwork, print_trees: bool = False):
     vertices = graph.get_vertices()
 
     evidence_string = BayesianNetwork.print_evidence(BN.evidence)
 
     for v_id in vertices.keys():
-        print('#' * 30 + ' v = ' + v_id + ' ' + '#' * 30)
+        print(colored('#' * 30 + ' v = ' + v_id + ' ' + '#' * 30, 'green'))
         n = v_id[1:]
-        p = BN.enumeration_ask(v_id)
+        p = BN.enumeration_ask(v_id, print_trees)
 
-        print('Vertex ' + n)
+        print(colored('Vertex ' + n, 'red'))
         print('\tP(Evacuees ' + n + evidence_string + ') = ' + str(p))
         print('\tP(not Evacuees ' + n + evidence_string + ') = ' +
               (str(1 - p) if p != 'Not defined' else p))
         print()
 
 
-def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork):
+def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork, print_trees: bool = False):
     edges = graph.get_edges()
     evidence_string = BayesianNetwork.print_evidence(BN.evidence)
 
     for t in range(T + 1):
-        print('#' * 60 + ' t = ' + str(t) + ' ' + '#' * 60)
+        print(colored('#' * 60 + ' t = ' + str(t) + ' ' + '#' * 60, 'blue'))
         for e_id, e in edges.items():
-            print('#' * 30 + ' e = ' + e_id + ' ' + '#' * 30)
+            print(colored('#' * 30 + ' e = ' + e_id + ' ' + '#' * 30, 'green'))
             id_as_vertices = e.get_id_as_vertices()
 
             var_id = id_as_vertices + '_' + str(t)
@@ -353,16 +359,16 @@ def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork):
             # if var_id in ['V1V2_1']:
             #     print(BN.vars[var_id].initial_probability_values)
 
-            p = BN.enumeration_ask(var_id)
+            p = BN.enumeration_ask(var_id, print_trees)
 
-            print('Edge ' + id_as_vertices + ', time ' + str(t))
+            print(colored('Edge ' + id_as_vertices + ', time ' + str(t), 'red'))
             print('\tP(Blockage ' + id_as_vertices + evidence_string + ') = ' + str(p))
             print('\tP(not Blockage ' + id_as_vertices + evidence_string + ') = ' +
-                  (str(1 - p) if p != 'Not defined' else p))
+                  (str(1 - p) if p != 'Not defined' else p), 'red')
             print()
 
 
-def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str):
+def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str, print_trees: bool = False):
     if val == '5':
         while True:
             t = input('Please specify a time to check for blockages in a path\n')
@@ -393,7 +399,7 @@ def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str):
                 if var_id in BN.evidence.keys() and BN.evidence[var_id]:
                     probabilities[e_id] = 0
 
-                p_blocked = BN.enumeration_ask(var_id)
+                p_blocked = BN.enumeration_ask(var_id, print_trees)
                 BN.set_one_evidence(var_id, False)
 
                 if p_blocked != 'Not defined':
@@ -420,11 +426,9 @@ def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str):
             print('The edges specified do not form a valid path in the graph')
 
 
-def run_simulation(config):
+def run_simulation(config, T: int, print_trees: bool = False):
     N, persistence, vertices_config, edges_config = parse_config_string(config)
-
     graph = Graph.from_config(vertices_config, edges_config)
-    T = 2
     BN = BayesianNetwork(graph.get_vertices(), graph.get_edges(), T, persistence)
 
     menu = """
@@ -446,14 +450,15 @@ def run_simulation(config):
         elif val == '2':
             add_piece_of_evidence(BN)
         elif val == '3':
-            get_vertices_probabilities(graph, BN)
+            get_vertices_probabilities(graph, BN, print_trees)
         elif val == '4':
-            get_edges_probabilities(graph, T, BN)
+            get_edges_probabilities(graph, T, BN, print_trees)
         elif val in ['5', '6']:
-            get_path_probability(graph, BN, val)
+            get_path_probability(graph, BN, val, print_trees)
         elif val == '7':
             break
 
 
 if __name__ == '__main__':
-    run_simulation(config_from_site)
+    T = 2
+    run_simulation(config_from_site, T)
