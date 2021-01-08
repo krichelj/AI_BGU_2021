@@ -1,8 +1,7 @@
 import pandas as pd
-from typing import Any, Dict
+from typing import Any, Dict, List
 from copy import deepcopy
 from collections import OrderedDict
-from numpy import prod
 from treelib import Tree
 from termcolor import colored
 
@@ -53,23 +52,6 @@ config_from_video_lecture = '''
 #Ppersistence 0.9
 '''
 
-config = '''
-#N 4               
-
-#V1 F 0            
-#V2 F 0.4        
-#V3 F 0.1           
-#V4 F 0.6         
-#V5 F 0.5
-
-#E1 1 2 W1        
-#E2 2 3 W3           
-#E3 3 4 W3         
-#E4 2 4 W4      
-#E5 2 5 W2
-                    
-#Ppersistence 0.9    ; Set persistence probability to 0.9
-'''
 
 def parse_config_string(config_string):
     N = 0
@@ -177,6 +159,7 @@ class BayesianNetwork(Graph):
         self.evidence: OrderedDict[str, bool] = OrderedDict()
         self.vars: OrderedDict[str: RandomVariable] = random_variables
         self.evaluation_tree_counter = 1
+        self.plot()
 
     def set_one_evidence(self, X_id: str, e: bool):
         self.evidence[X_id] = e
@@ -309,10 +292,6 @@ class BayesianNetwork(Graph):
 
         return output
 
-    def normalize(self):
-        return prod([self.vars[E_id].p if self.evidence[E_id] else 1 - self.vars[E_id].p
-                     for E_id in self.evidence.keys()])
-
 
 def add_piece_of_evidence(BN: BayesianNetwork):
     available_vars = {i + 1: var_id for i, var_id in enumerate(BN.vars.keys()) if
@@ -359,13 +338,43 @@ def get_edges_probabilities(graph: Graph, T: int, BN: BayesianNetwork, print_tre
             # if var_id in ['V1V2_1']:
             #     print(BN.vars[var_id].initial_probability_values)
 
-            p = BN.enumeration_ask(var_id, print_trees)
+            p_blocked = BN.enumeration_ask(var_id, print_trees)
+            p_not_blocked = 1 - p_blocked
 
             print(colored('Edge ' + id_as_vertices + ', time ' + str(t), 'red'))
-            print('\tP(Blockage ' + id_as_vertices + evidence_string + ') = ' + str(p))
-            print('\tP(not Blockage ' + id_as_vertices + evidence_string + ') = ' +
-                  (str(1 - p) if p != 'Not defined' else p), 'red')
+            print('\tP(Blockage ' + id_as_vertices + evidence_string + ') = ' + str(p_blocked))
+            print('\tP(not Blockage ' + id_as_vertices + evidence_string + ') = ' + str(p_not_blocked))
             print()
+
+
+def calculate_path_probability(BN: BayesianNetwork, input_edges_ids: List[str], graph_edges_ids: List[str], t: int,
+                               val: str, print_trees: bool = False):
+    total_path_probability = 1
+    probabilities = {}
+    initial_evidence = BN.evidence.copy()
+
+    for e_id in input_edges_ids:
+        if e_id not in graph_edges_ids:
+            e_id = e_id[2:4] + e_id[0:2]
+
+        var_id = e_id + '_' + str(t)
+
+        if var_id in BN.evidence.keys() and BN.evidence[var_id]:
+            probabilities[e_id] = 0
+
+        p_blocked = BN.enumeration_ask(var_id, print_trees)
+        BN.set_one_evidence(var_id, False)
+
+        p_not_blocked = 1 - p_blocked
+        total_path_probability *= p_not_blocked
+        probabilities[e_id] = p_not_blocked
+
+        if val == '6':
+            t += 1
+
+    BN.evidence = initial_evidence
+
+    return probabilities, total_path_probability
 
 
 def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str, print_trees: bool = False):
@@ -381,49 +390,46 @@ def get_path_probability(graph: Graph, BN: BayesianNetwork, val: str, print_tree
         t = 0
 
     while True:
-        edges = graph.get_edges()
-        input_edges = input('Please specify a path by edge names separated by spaces\n').split(' ')
-        print(input_edges)
-        if graph.is_path(input_edges):
+        graph_edges_ids = list(graph.get_edges().keys())
+        input_edges_ids = input('Please specify a path by edge names separated by spaces\n').upper().split(' ')
 
-            total_path_probability = 1
-            probabilities = {}
-            initial_evidence = BN.evidence.copy()
-
-            for e_id in input_edges:
-                if e_id not in edges.keys():
-                    e_id = e_id[2:4] + e_id[0:2]
-
-                var_id = e_id + '_' + str(t)
-
-                if var_id in BN.evidence.keys() and BN.evidence[var_id]:
-                    probabilities[e_id] = 0
-
-                p_blocked = BN.enumeration_ask(var_id, print_trees)
-                BN.set_one_evidence(var_id, False)
-
-                if p_blocked != 'Not defined':
-                    p_not_blocked = 1 - p_blocked
-                    total_path_probability *= p_not_blocked
-                    probabilities[e_id] = p_not_blocked
-                else:
-                    total_path_probability = -1
-                    break
-
-                if val == '6':
-                    t += 1
-
-            BN.evidence = initial_evidence
+        if graph.is_path(input_edges_ids):
+            probabilities, total_path_probability = calculate_path_probability(BN, input_edges_ids, graph_edges_ids,
+                                                                               t, val, print_trees)
 
             print('The individual probabilities of the edges to be free are: ' + str(probabilities))
-            print('The probability that the path (' + ' '.join(
-                input_edges) + ') is free from blockages at time ' + str(t) + ' is ' +
-                  (str(total_path_probability) if total_path_probability != -1 else ' not defined'))
+            print('The probability that the path (' + ' '.join(input_edges_ids) +
+                  ') is free from blockages at time ' + str(t) + ' is ' + str(total_path_probability))
 
             break
 
         else:
             print('The edges specified do not form a valid path in the graph')
+
+
+def get_highest_probability_path(graph: Graph, BN: BayesianNetwork, print_trees: bool = False):
+    while True:
+        v_id, u_id = input('Please type two vertices to check a path from separated by a space\n').split(' ')
+
+        vertices = graph.get_vertices()
+        graph_edges_ids = list(graph.get_edges().keys())
+
+        if not (v_id in vertices.keys() and u_id in vertices.keys()):
+            print('The input does not contain valid vertices')
+        else:
+            paths = graph.get_all_paths(v_id, u_id)
+
+            paths_probabilities = {calculate_path_probability(BN, path, graph_edges_ids, 1, '', print_trees)[1]: path
+                                   for path in paths}
+
+            print('The path probabilities between ' + v_id + ' and ' + u_id + ' are:')
+            for path_p, path in paths_probabilities.items():
+                print(str(path) + ': ' + str(path_p))
+
+            max_path = max(paths_probabilities.keys())
+            print('The path with the highest probability of being free at t=1 is ' + str(paths_probabilities[max_path]))
+
+            break
 
 
 def run_simulation(config, T: int, print_trees: bool = False):
@@ -438,10 +444,10 @@ def run_simulation(config, T: int, print_trees: bool = False):
     4. Infer the probability that each of the edges is blocked
     5. Infer the probability that a certain path is free from blockages at a specified time
     6. Infer the probability that a certain path is free from blockages at progressing time steps
-    7. Quit
+    7. Infer the path between 2 given vertices that has the highest probability of being free from blockages at time t=1
+    8. Quit
     """
     graph.plot()
-
     while True:
         val = input(menu)
 
@@ -456,9 +462,11 @@ def run_simulation(config, T: int, print_trees: bool = False):
         elif val in ['5', '6']:
             get_path_probability(graph, BN, val, print_trees)
         elif val == '7':
+            get_highest_probability_path(graph, BN, print_trees)
+        elif val == '8':
             break
 
 
 if __name__ == '__main__':
-    T = 2
-    run_simulation(config_from_site, T)
+    T = 1
+    run_simulation(config_from_site, T, True)
