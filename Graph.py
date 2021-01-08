@@ -1,6 +1,6 @@
 import sys
 import heapq
-from typing import Dict, Any, Union, List
+from typing import Dict, Union, List
 from math import sin, cos, pi
 import matplotlib.pyplot as plt
 
@@ -43,7 +43,7 @@ class Edge:
     def __lt__(self, other):
         return (self.w, self.e_id) < (other.w, other.e_id)
 
-    def get_other_vertex(self, v: Vertex):
+    def get_other_vertex(self, v: Vertex) -> Vertex:
         return (self.Vs - {v}).pop()
 
     def get_vertices_ids(self):
@@ -52,7 +52,7 @@ class Edge:
 
         return v_id, u_id
 
-    def get_id_as_vertices(self):
+    def get_id_as_vertices(self) -> str:
         v_id, u_id = self.get_vertices_ids()
 
         return v_id + u_id
@@ -77,17 +77,17 @@ class EdgeLocation:
 
 
 class Graph:
-    def __init__(self, vertices: Dict[Any, Vertex], edges: Dict[Any, Edge]):
+    def __init__(self, vertices: Dict[str, Vertex], edges: Dict[str, Edge]):
         self._vertices = vertices
         self._edges = edges
 
-    def get_vertices(self):
+    def get_vertices(self) -> Dict[str, Vertex]:
         return self._vertices
 
-    def get_edges(self):
+    def get_edges(self) -> Dict[str, Edge]:
         return self._edges
 
-    def get_weight(self, v1_id, v2_id):
+    def get_weight(self, v1_id: str, v2_id: str) -> int:
         e_id = v1_id + v2_id
         if e_id not in self._vertices:
             e_id = v2_id + v1_id
@@ -95,7 +95,7 @@ class Graph:
         return self._edges[e_id].w
 
     @staticmethod
-    def add_edges_to_vertices(edges: Dict[any, Edge]):
+    def add_edges_to_vertices(edges: Dict[str, Edge]):
         for e_id, e in edges.items():
             for v in e.Vs:
                 v_edges = v.edges
@@ -103,7 +103,7 @@ class Graph:
                     v_edges[e_id] = e
 
     @classmethod
-    def from_config(cls, vertices_config: Dict[Any, float], edges_config: Dict[str, tuple]):
+    def from_config(cls, vertices_config: Dict[str, float], edges_config: Dict[str, tuple]):
         n = len(vertices_config)
         vertices = {v_id: Vertex(v_id, n_people, cos(2 * pi * i / n), sin(2 * pi * i / n))
                     for i, (v_id, n_people) in enumerate(vertices_config.items())}
@@ -166,7 +166,7 @@ class Graph:
         plt.tight_layout()
         plt.show()
 
-    def Dijkstra(self, v_id):
+    def Dijkstra(self, v_id: str):
         vertices = self._vertices
 
         for v in vertices.values():
@@ -206,7 +206,7 @@ class Graph:
 
         return min_spanning_tree_cost
 
-    def Prim(self, init_id) -> int:
+    def Prim(self, init_id: str) -> int:
         vertices = self.get_vertices()
         n = len(vertices)
         init = vertices[init_id]
@@ -235,7 +235,7 @@ class Graph:
 
         return min_spanning_tree_cost
 
-    def is_path(self, path_edges: List[str]):
+    def is_path(self, path_edges: List[str]) -> bool:
         result = True
         edges = self.get_edges()
 
@@ -256,5 +256,28 @@ class Graph:
 
         return result
 
-    def get_all_paths(self, v1, v2):
-        pass
+    def get_all_paths(self, origin_id: str, target_id: str) -> List[List[str]]:
+
+        connection_path = []
+        paths = []
+
+        def find_paths(origin_id: str, target_id: str):
+
+            origin = self._vertices[origin_id]
+
+            for e_id, e in origin.edges.items():
+                next_vertex = e.get_other_vertex(origin)
+                next_id = next_vertex.v_id
+
+                if next_id == target_id:
+                    current_path = connection_path.copy()
+                    current_path.append(e_id)
+                    paths.append(current_path)
+                elif e_id not in connection_path:
+                    connection_path.append(e_id)
+                    find_paths(next_id, target_id)
+                    connection_path.pop()
+
+        find_paths(origin_id, target_id)
+
+        return paths
