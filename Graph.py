@@ -25,11 +25,12 @@ class Vertex:
 
 
 class Edge:
-    def __init__(self, e_id, V1: Vertex, V2: Vertex, w: int = 1):
+    def __init__(self, e_id, V1: Vertex, V2: Vertex, w: int = 1, prob: float = 0):
         self.e_id = e_id
         self.Vs = {V1, V2}
         self.w = w
         self.blocked = False
+        self.prob = prob
 
     def __str__(self):
         return self.e_id
@@ -89,7 +90,7 @@ class Graph:
 
     def get_weight(self, v1_id: str, v2_id: str) -> int:
         e_id = v1_id + v2_id
-        if e_id not in self._vertices:
+        if e_id not in self._edges:
             e_id = v2_id + v1_id
 
         return self._edges[e_id].w
