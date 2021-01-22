@@ -108,7 +108,7 @@ class Graph:
         n = len(vertices_config)
         vertices = {v_id: Vertex(v_id, n_people, cos(2 * pi * i / n), sin(2 * pi * i / n))
                     for i, (v_id, n_people) in enumerate(vertices_config.items())}
-        edges = {e_id: Edge(e_id, vertices[e_tup[0]], vertices[e_tup[1]], e_tup[2])
+        edges = {e_id: Edge(e_id, vertices[e_tup[0]], vertices[e_tup[1]], e_tup[2], e_tup[3])
                  for e_id, e_tup in edges_config.items()}
 
         Graph.add_edges_to_vertices(edges)
@@ -158,7 +158,7 @@ class Graph:
                 w_y += v.y
 
             ax.plot(V_x, V_y, color="b", linewidth=0.3)
-            plt.text(w_x / 2, w_y / 2, str(e.w))
+            plt.text(w_x / 2, w_y / 2, str(e.w)+', '+str(e.prob))
 
         ax.tick_params(axis='both', which='both', bottom=False, top=False,
                        labelbottom=False, right=False, left=False,
