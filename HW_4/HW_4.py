@@ -13,11 +13,8 @@ import random
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 from treelib import Tree
-import sys
 
 from Graph import Graph
-
-MAX_SIZE = sys.maxsize
 
 """#HW4
 
@@ -36,6 +33,22 @@ config = '''
 #Target 5
 '''
 
+check = '''
+#V6
+
+
+#E1 1 2 W1
+#E2 1 4 W1
+#E3 2 3 W1 B0.9
+#E4 4 5 W1 B0.8
+#E5 5 6 W1
+#E6 3 6 W1
+#E7 1 6 W100
+
+#Start 1
+#Target 6
+'''
+
 
 def parse_config_string(config_string):
     vertices_config = {}
@@ -52,12 +65,17 @@ def parse_config_string(config_string):
                 for i in range(N):
                     vertices_config['V' + str(i + 1)] = 0
             elif identifier == 'E':
-                splitted = line[1:].replace('W', '').split(' ')[0:5]
-                e, v1_num, v2_num, w, b = splitted
+                b = None
+                splitted = line[1:].replace('W', '').split(' ')[1:5]
+                if len(splitted) == 3:
+                    v1_num, v2_num, w = splitted
+                else:
+                    v1_num, v2_num, w, b = splitted
+
                 v1v2 = sorted([v1_num, v2_num])
                 v1_id = 'V' + v1v2[0]
                 v2_id = 'V' + v1v2[1]
-                prob = 0 if not len(b) or b[0] != 'B' else float(b[1:])
+                prob = 0 if not b or not len(b) or b[0] != 'B' else float(b[1:])
                 edges_config[v1_id + v2_id] = (v1_id, v2_id, int(w), prob)
             elif identifier == 'T':
                 num = line.split(' ')[1]
@@ -128,9 +146,8 @@ class MarkovDecisionProblem:
         else:
             self.evaluation_tree.create_node(tag=curr_id, identifier=self.tree_counter, parent=parent_id)
 
-    def solve_Bellman_equations(self, initial_optimal_values: float, epsilon: float):
-        belief_states = self.belief_states
-        for bs in belief_states.values():
+    def solve_Bellman_equations(self, initial_optimal_values: float, epsilon: float, start: str, target: str):
+        for bs in self.belief_states.values():
             bs.utility_value = initial_optimal_values if bs.v_id != self.target else 0.0
         stop_cond = False
 
@@ -139,19 +156,21 @@ class MarkovDecisionProblem:
 
         while not stop_cond:
             # print(70 * '#' + str(j) + 70 * '#')
-            U_t = {bs_id: bs.utility_value for bs_id, bs in belief_states.items() if bs.v_id != self.target}
-            U_t_new = {bs_id: bs.Bellman_equation(belief_states) for bs_id, bs in belief_states.items() if
-                       bs.v_id != self.target}
+            U_t = {bs_id: bs.utility_value for bs_id, bs in self.belief_states.items() if bs.v_id != self.target}
+            U_t_new = {bs_id: bs.Bellman_equation(self.belief_states, start, target, initial_optimal_values)
+                       for bs_id, bs in self.belief_states.items() if bs.v_id != self.target}
             diff = {bs_id: abs(U_t[bs_id] - U_t_new[bs_id]) for bs_id in U_t.keys()}
             # print(diff)
-            for bs_id, bs in belief_states.items():
-                if bs.v_id != self.target:
-                    bs.utility_value = U_t_new[bs_id]
 
             norm = max(diff.values())
             plot_lst += [norm]
             stop_cond = norm < epsilon
             j += 1
+
+            if not stop_cond:
+                for bs_id, bs in self.belief_states.items():
+                    if bs.v_id != self.target:
+                        bs.utility_value = U_t_new[bs_id]
 
         plt.plot(plot_lst, '-o')
         plt.hlines(y=epsilon, xmin=0, xmax=len(plot_lst), colors='red')
@@ -206,25 +225,34 @@ class BeliefState:
         bs_id = BeliefState.create_id(u_id, new_E_prob)
         self.transition_prob[bs_id] = p
 
-    def Bellman_equation(self, belief_states: Dict):
+    def Bellman_equation(self, belief_states: Dict, start: str, target: str, initial_optimal_values: float):
         transition_prob = self.transition_prob
         # print('#'*10 + self.id + '#'*10)
-        # print(transition_prob)
-        actions_and_states = {}
-        for s_id, p in transition_prob.items():
-            if s_id in belief_states and p > 0:
-                s = belief_states[s_id]
-                other = s.v_id
-                w = self.graph.get_weight(self.v_id, s.v_id)
-                element = s.utility_value * p
+        actions_and_states: Dict[str, float] = {}
+
+        for bs_id, p in transition_prob.items():
+            if bs_id in belief_states and p > 0:
+                bs = belief_states[bs_id]
+                other = bs.v_id
+                w = self.graph.get_weight(self.v_id, other)
+                element = bs.utility_value * p
                 # print(element)
                 if other in actions_and_states:
                     actions_and_states[other] += element
                 else:
                     actions_and_states[other] = element - w
 
-        m = max(actions_and_states.values()) if len(actions_and_states) else - MAX_SIZE
-        self.optimal_action = max(actions_and_states, key=actions_and_states.get) if len(actions_and_states) else None
+        if self.id == "V1 {'V1V2': 0, 'V1V4': 0, 'V2V3': 1, 'V4V5': 0.8, 'V5V6': 0, 'V3V6': 0, 'V1V6': 1}":
+            print(actions_and_states)
+
+        blocked = False
+        if all([any([self.E_prob[e] == 1 for e in path]) for path in self.graph.get_all_paths(start, target)]):
+            blocked = True
+
+        m = max(actions_and_states.values()) if len(actions_and_states) and not blocked else - initial_optimal_values
+        self.optimal_action = max(actions_and_states, key=actions_and_states.get) \
+            if len(actions_and_states) and not blocked else None
+
         return m
 
 
@@ -237,44 +265,61 @@ class Simulation:
         start_E_prob = {e_id: e.prob if self.start not in e_id else (1 if random.random() < e.prob else 0)
                         for e_id, e in self.graph.get_edges().items()}
         start_id = BeliefState.create_id(self.start, start_E_prob)
+        self.initial_utility_value = - sum([e.w for e in self.graph.get_edges().values()])
         self.curr_bs = self.mdp.belief_states[start_id]
         self.bss = [self.curr_bs.id]
         self.cost = 0
         self.path = [self.start]
         self.next_vertex = None
 
-    def run_simulation(self, initial_optimal_values: float, epsilon: float):
+    def run_simulation(self, epsilon: float, edges_assignment: Dict[str, int] = None):
         self.graph.plot()
-        self.mdp.solve_Bellman_equations(initial_optimal_values, epsilon)
+        self.mdp.solve_Bellman_equations(self.initial_utility_value, epsilon, self.start, self.target)
         print(colored('Belief states and optimal actions:', 'green'))
-        print('\n'.join([bs.id + ': U = ' + str(bs.utility_value) +
-                         ', optimal action = ' + bs.v_id + '->' + (bs.optimal_action if bs.optimal_action else 'None')
-                         for bs in self.mdp.belief_states.values() if bs.v_id != self.target]))
+        printed = []
+        for bs in self.mdp.belief_states.values():
+            if bs.v_id != self.target:
+                if bs.v_id not in printed:
+                    printed += [bs.v_id]
+                    print('#' * 50 + bs.v_id + '#' * 50)
+                print(bs.id + ': U = ' + str(bs.utility_value) +
+                      ', optimal action = ' + bs.v_id + '->' + (bs.optimal_action if bs.optimal_action else 'None'))
 
         self.next_vertex = self.curr_bs.optimal_action
         if self.next_vertex:
             self.path += [self.next_vertex]
 
         stuck = False
+        edges_assignment_keys = edges_assignment.keys()
 
         while self.next_vertex != self.target and not stuck:
-            curr_transitions = {bs_id: p for bs_id, p in self.curr_bs.transition_prob.items()
-                                if p > 0 and self.mdp.belief_states[bs_id].v_id == self.next_vertex}
-            curr_transitions_keys = list(curr_transitions.keys())
-            number_of_possible_transitions = len(curr_transitions_keys)
+            assigned_edges = [e_id for e_id in edges_assignment_keys if self.next_vertex in e_id]
+            curr_transition = {bs_id: p for bs_id, p in self.curr_bs.transition_prob.items()
+                               if p > 0 and self.mdp.belief_states[bs_id].v_id == self.next_vertex}
+            if len(assigned_edges):
+                curr_transition = {bs_id: p for bs_id, p in self.curr_bs.transition_prob.items()
+                                   if p > 0 and self.mdp.belief_states[bs_id].v_id == self.next_vertex
+                                   and self.mdp.belief_states[bs_id].E_prob[assigned_edges[0]] == edges_assignment[
+                                       assigned_edges[0]]}
+
+            curr_transitions_keys = list(curr_transition.keys())
+            number_of_possible_transitions = len(curr_transition)
 
             if number_of_possible_transitions:
-                if number_of_possible_transitions == 1:
-                    key = 0
-                else:
-                    draw = random.random()
-                    key = 0 if curr_transitions[curr_transitions_keys[0]] > draw else 1
+                # if number_of_possible_transitions == 1:
+                #     key = 0
+                # else:
+                #     draw = random.random()
+                #     key = 0 if curr_transitions[curr_transitions_keys[0]] > draw else 1
 
                 self.cost += self.graph.get_weight(self.curr_bs.v_id, self.curr_bs.optimal_action)
-                self.curr_bs = self.mdp.belief_states[curr_transitions_keys[key]]
+                self.curr_bs = self.mdp.belief_states[curr_transitions_keys[0]]
                 self.bss += [self.curr_bs.id]
                 self.next_vertex = self.curr_bs.optimal_action
-                self.path += [self.next_vertex]
+                if self.next_vertex:
+                    self.path += [self.next_vertex]
+                else:
+                    stuck = True
             else:
                 stuck = True
 
@@ -289,7 +334,7 @@ class Simulation:
 
 
 if __name__ == '__main__':
-    initial_optimal_values = -12
-    epsilon = 0.00001
-    sim = Simulation(config)
-    sim.run_simulation(initial_optimal_values, epsilon)
+    epsilon = 0.1
+    edges_assignment = {'V2V3': 1, 'V4V5': 1}
+    sim = Simulation(check)
+    sim.run_simulation(epsilon, edges_assignment)
