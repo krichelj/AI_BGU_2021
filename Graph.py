@@ -158,7 +158,7 @@ class Graph:
                 w_y += v.y
 
             ax.plot(V_x, V_y, color="b", linewidth=0.3)
-            plt.text(w_x / 2, w_y / 2, str(e.w)+', '+str(e.prob))
+            plt.text(w_x / 2, w_y / 2, str(e.w) + ', ' + str(e.prob))
 
         ax.tick_params(axis='both', which='both', bottom=False, top=False,
                        labelbottom=False, right=False, left=False,

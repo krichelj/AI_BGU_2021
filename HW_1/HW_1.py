@@ -242,7 +242,7 @@ class Graph:
                 V_x.append(v.x)
                 V_y.append(v.y)
 
-            ax.annotate(s=v.v_id, xy=(v.x, v.y))
+            ax.annotate(text=v.v_id, xy=(v.x, v.y))
 
         ax.scatter(V_x_init, V_y_init, color="g", label='init', s=200)
         ax.scatter(V_x, V_y, color="b", label='shapes', s=200)
