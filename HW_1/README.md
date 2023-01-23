@@ -1,4 +1,4 @@
-# HW 1 - Amir Ziskind and Shay Kricheli
+# HW 1 - A* Star Algorithm and Heuristics
 
 ## How to run
 Open the following Google collab notebook: 
