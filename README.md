@@ -1,4 +1,4 @@
-# Artificial Intelligence BGU 2021
+# AI_BGU_2021
 
 Artificial Intelligence course, Computer Science M.Sc., Ben Gurion University of the Negev, 2021\
 Amir Ziskind and Joshua Shay Kricheli
